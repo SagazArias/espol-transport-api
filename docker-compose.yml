@@ -1,0 +1,20 @@
+services:
+  db:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_USER: espol
+      POSTGRES_PASSWORD: espol_dev
+      POSTGRES_DB: espol_transport
+    ports:
+      - "5432:5432"
+    volumes:
+      - espol_pg_data:/var/lib/postgresql/data
+
+  mailpit:
+    image: axllent/mailpit:latest
+    ports:
+      - "1025:1025"
+      - "8025:8025"
+
+volumes:
+  espol_pg_data:
