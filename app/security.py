@@ -25,7 +25,16 @@ def verify_password(plain: str, hashed: str) -> bool:
 def create_access_token(subject: str) -> str:
     expire = datetime.now(timezone.utc) + timedelta(minutes=settings.access_token_expire_minutes)
     return jwt.encode(
-        {"sub": subject, "exp": expire},
+        {"sub": subject, "exp": expire, "typ": "access"},
+        settings.jwt_secret,
+        algorithm=settings.jwt_algorithm,
+    )
+
+
+def create_password_reset_token(subject: str) -> str:
+    expire = datetime.now(timezone.utc) + timedelta(minutes=settings.password_reset_token_minutes)
+    return jwt.encode(
+        {"sub": subject, "exp": expire, "typ": "password_reset"},
         settings.jwt_secret,
         algorithm=settings.jwt_algorithm,
     )
@@ -34,6 +43,21 @@ def create_access_token(subject: str) -> str:
 def decode_token(token: str) -> str | None:
     try:
         payload = jwt.decode(token, settings.jwt_secret, algorithms=[settings.jwt_algorithm])
+        if payload.get("typ") not in (None, "access"):
+            return None
+        sub = payload.get("sub")
+        if isinstance(sub, str):
+            return sub
+    except JWTError:
+        return None
+    return None
+
+
+def decode_password_reset_token(token: str) -> str | None:
+    try:
+        payload = jwt.decode(token, settings.jwt_secret, algorithms=[settings.jwt_algorithm])
+        if payload.get("typ") != "password_reset":
+            return None
         sub = payload.get("sub")
         if isinstance(sub, str):
             return sub

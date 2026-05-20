@@ -41,6 +41,7 @@ class User(Base):
     last_name: Mapped[Optional[str]] = mapped_column(String(120), nullable=True)
     phone: Mapped[Optional[str]] = mapped_column(String(32), nullable=True)
     espol_verified_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True), nullable=True)
+    recovery_phrase_hash: Mapped[Optional[str]] = mapped_column(String(255), nullable=True)
 
     vehicles: Mapped[list["Vehicle"]] = relationship(back_populates="owner")
     published_routes: Mapped[list["PublishedRoute"]] = relationship(back_populates="driver")
@@ -202,6 +203,25 @@ class InboxAlert(Base):
     )
     message: Mapped[str] = mapped_column(String(1000))
     read_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True), nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc))
+
+
+class PasswordRecoveryLockout(Base):
+    __tablename__ = "password_recovery_lockouts"
+
+    email: Mapped[str] = mapped_column(String(255), primary_key=True)
+    failed_attempts: Mapped[int] = mapped_column(Integer, default=0)
+    locked_until: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True), nullable=True)
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc))
+
+
+class PasswordRecoveryLog(Base):
+    __tablename__ = "password_recovery_logs"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    email: Mapped[str] = mapped_column(String(255), index=True)
+    event_type: Mapped[str] = mapped_column(String(32))
+    ip_address: Mapped[Optional[str]] = mapped_column(String(64), nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc))
 
 

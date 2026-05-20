@@ -1,3 +1,4 @@
+import logging
 from datetime import timedelta
 
 from fastapi import APIRouter, Depends, HTTPException, Request, status
@@ -12,11 +13,22 @@ from app.email_service import EmailDeliveryError, send_student_verification_emai
 from app.models import StudentEmailOtp, User, UserRole, Vehicle
 from app.otp_utils import generate_six_digit_code, hash_otp, verify_otp
 from app.recaptcha import verify_recaptcha
+from app.recovery_security import (
+    GENERIC_RECOVERY_ERROR,
+    check_recovery_allowed,
+    clear_recovery_lockout,
+    log_recovery_event,
+    record_failed_recovery,
+)
 from app.schemas import (
     DriverRegister,
     OtpSentResponse,
     PassengerRegister,
     PassengerSendOtp,
+    PasswordRecoveryResetIn,
+    PasswordRecoveryResetOut,
+    PasswordRecoveryVerifyIn,
+    PasswordRecoveryVerifyOut,
     TokenResponse,
     UserLogin,
     UserPublic,
@@ -24,7 +36,15 @@ from app.schemas import (
     utc_now,
 )
 from app.rate_limit import limiter
-from app.security import create_access_token, hash_password, verify_password
+from app.security import (
+    create_access_token,
+    create_password_reset_token,
+    decode_password_reset_token,
+    hash_password,
+    verify_password,
+)
+
+logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/auth", tags=["auth"])
 
@@ -120,10 +140,16 @@ def passenger_send_otp(
         send_student_verification_email(email, code)
     except EmailDeliveryError as exc:
         db.rollback()
-        raise HTTPException(
-            status_code=status.HTTP_502_BAD_GATEWAY,
-            detail="No se pudo enviar el correo de verificación. Contacta al administrador.",
-        ) from exc
+        logger.error(
+            "OTP email failed for %s: %s",
+            email,
+            exc,
+            exc_info=exc.cause or exc,
+        )
+        detail = "No se pudo enviar el correo de verificación. Contacta al administrador."
+        if settings.expose_api_errors:
+            detail = f"{detail} ({exc})"
+        raise HTTPException(status_code=status.HTTP_502_BAD_GATEWAY, detail=detail) from exc
     db.commit()
 
     dev_code = code if settings.expose_dev_otp else None
@@ -170,6 +196,7 @@ def passenger_register(
     user = User(
         email=email,
         password_hash=hash_password(body.password),
+        recovery_phrase_hash=hash_password(body.recovery_phrase),
         full_name=full_name,
         first_name=body.first_name.strip(),
         last_name=body.last_name.strip(),
@@ -199,6 +226,7 @@ def driver_register(request: Request, body: DriverRegister, db: Session = Depend
     user = User(
         email=email,
         password_hash=hash_password(body.password),
+        recovery_phrase_hash=hash_password(body.recovery_phrase),
         full_name=full_name,
         first_name=body.first_name.strip(),
         last_name=body.last_name.strip(),
@@ -243,3 +271,63 @@ def login(request: Request, body: UserLogin, db: Session = Depends(get_db)) -> T
 @router.get("/me", response_model=UserPublic)
 def me(user: User = Depends(get_current_user)) -> User:
     return user
+
+
+@router.post("/password-recovery/verify", response_model=PasswordRecoveryVerifyOut)
+@limiter.limit("8/minute")
+def password_recovery_verify(
+    request: Request,
+    body: PasswordRecoveryVerifyIn,
+    db: Session = Depends(get_db),
+) -> PasswordRecoveryVerifyOut:
+    _check_captcha(body.captcha_token, "password_recovery_verify")
+    email = str(body.email).lower().strip()
+    check_recovery_allowed(db, email)
+
+    user = db.execute(select(User).where(User.email == email)).scalar_one_or_none()
+    if (
+        user is None
+        or not user.recovery_phrase_hash
+        or not verify_password(body.recovery_phrase, user.recovery_phrase_hash)
+    ):
+        record_failed_recovery(db, email, request)
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail=GENERIC_RECOVERY_ERROR)
+
+    clear_recovery_lockout(db, email, request)
+    reset_token = create_password_reset_token(str(user.id))
+    return PasswordRecoveryVerifyOut(
+        reset_token=reset_token,
+        expires_in_minutes=settings.password_reset_token_minutes,
+    )
+
+
+@router.post("/password-recovery/reset", response_model=PasswordRecoveryResetOut)
+@limiter.limit("8/minute")
+def password_recovery_reset(
+    request: Request,
+    body: PasswordRecoveryResetIn,
+    db: Session = Depends(get_db),
+) -> PasswordRecoveryResetOut:
+    user_id = decode_password_reset_token(body.reset_token)
+    if user_id is None:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="El enlace de recuperación expiró o no es válido. Vuelve a verificar tu palabra clave.",
+        )
+
+    from uuid import UUID
+
+    try:
+        uid = UUID(user_id)
+    except ValueError as exc:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Token inválido.") from exc
+
+    user = db.get(User, uid)
+    if user is None:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Token inválido.")
+
+    user.password_hash = hash_password(body.new_password)
+    clear_login_lockout(db, user.email)
+    log_recovery_event(db, user.email, "reset_ok", request)
+    db.commit()
+    return PasswordRecoveryResetOut()

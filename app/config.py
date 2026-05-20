@@ -48,12 +48,18 @@ class Settings(BaseSettings):
     smtp_password: str = ""
     smtp_from: str = "espol-transport@localhost"
     smtp_use_tls: bool = True
+    smtp_use_ssl: bool = False
+    smtp_timeout_seconds: int = 45
 
     student_otp_ttl_minutes: int = 15
     student_otp_resend_seconds: int = 60
 
     login_max_failed_attempts: int = 5
     login_lockout_minutes: int = 15
+
+    recovery_max_failed_attempts: int = 5
+    recovery_lockout_minutes: int = 15
+    password_reset_token_minutes: int = 15
 
     recaptcha_secret_key: str = ""
     recaptcha_min_score: float = 0.5

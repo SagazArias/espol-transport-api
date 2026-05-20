@@ -8,6 +8,7 @@ from pydantic import BaseModel, EmailStr, Field, computed_field, field_validator
 from app.fare_utils import parse_and_validate_fare
 from app.models import BookingStatus, TripDirection, UserRole
 from app.password_policy import validate_password_strength
+from app.recovery_phrase_policy import validate_recovery_phrase
 
 
 class TokenResponse(BaseModel):
@@ -77,6 +78,7 @@ class PassengerRegister(BaseModel):
     phone: str = Field(min_length=8, max_length=32)
     email: EmailStr
     password: str = Field(min_length=8, max_length=128)
+    recovery_phrase: str = Field(min_length=4, max_length=64)
     otp_code: str = Field(min_length=6, max_length=6, pattern=r"^\d{6}$")
     captcha_token: str | None = None
 
@@ -84,6 +86,11 @@ class PassengerRegister(BaseModel):
     @classmethod
     def strong_password(cls, v: str) -> str:
         return validate_password_strength(v)
+
+    @field_validator("recovery_phrase")
+    @classmethod
+    def valid_recovery_phrase(cls, v: str) -> str:
+        return validate_recovery_phrase(v)
 
     @field_validator("email", mode="before")
     @classmethod
@@ -107,15 +114,21 @@ class DriverRegister(BaseModel):
     phone: str = Field(min_length=8, max_length=32)
     email: EmailStr
     password: str = Field(min_length=8, max_length=128)
+    recovery_phrase: str = Field(min_length=4, max_length=64)
     plate: str = Field(min_length=3, max_length=32)
+    brand: str = Field(min_length=2, max_length=120)
+    model: str = Field(min_length=1, max_length=120)
     captcha_token: str | None = None
 
     @field_validator("password")
     @classmethod
     def strong_password(cls, v: str) -> str:
         return validate_password_strength(v)
-    brand: str = Field(min_length=2, max_length=120)
-    model: str = Field(min_length=1, max_length=120)
+
+    @field_validator("recovery_phrase")
+    @classmethod
+    def valid_recovery_phrase(cls, v: str) -> str:
+        return validate_recovery_phrase(v)
 
     @field_validator("email", mode="before")
     @classmethod
@@ -123,6 +136,43 @@ class DriverRegister(BaseModel):
         if isinstance(v, str):
             return v.strip().lower()
         return v
+
+
+class PasswordRecoveryVerifyIn(BaseModel):
+    email: EmailStr
+    recovery_phrase: str = Field(min_length=4, max_length=64)
+    captcha_token: str | None = None
+
+    @field_validator("email", mode="before")
+    @classmethod
+    def normalize_email(cls, v: object) -> object:
+        if isinstance(v, str):
+            return v.strip().lower()
+        return v
+
+    @field_validator("recovery_phrase")
+    @classmethod
+    def valid_recovery_phrase(cls, v: str) -> str:
+        return validate_recovery_phrase(v)
+
+
+class PasswordRecoveryVerifyOut(BaseModel):
+    reset_token: str
+    expires_in_minutes: int
+
+
+class PasswordRecoveryResetIn(BaseModel):
+    reset_token: str
+    new_password: str = Field(min_length=8, max_length=128)
+
+    @field_validator("new_password")
+    @classmethod
+    def strong_password(cls, v: str) -> str:
+        return validate_password_strength(v)
+
+
+class PasswordRecoveryResetOut(BaseModel):
+    message: str = "Contraseña actualizada. Ya puedes iniciar sesión."
 
 
 class OtpSentResponse(BaseModel):
