@@ -1,7 +1,7 @@
 # Entorno de pruebas — ESPOL Transporte
 
 > **Producción / seguridad / despliegue:** `SEGURIDAD.md`, `DESPLIEGUE.md`, `BASE_DE_DATOS.md`.  
-> OTP real al estudiante: `OTP_DELIVERY=smtp` + credenciales SMTP (no `log` en servidor público).
+> OTP en Render/producción: `OTP_DELIVERY=resend` + `RESEND_API_KEY` (ver `OTP_RESEND.md`). SMTP no funciona en Render free tier.
 
 Guía para probar **1 pasajero** y **1 conductor** en local (API + Android).
 

@@ -10,7 +10,7 @@
 | IDOR | Rutas y reservas filtran por usuario autenticado (ej. `GET /published-routes/{id}` solo dueño) |
 | Contraseñas en texto plano | bcrypt con 12 rondas (`app/security.py`) |
 | OTP en texto plano en BD | Hash con HMAC (`app/otp_utils.py`) |
-| OTP de prueba en producción | `APP_ENVIRONMENT=production` fuerza `OTP_DELIVERY=smtp` y `EXPOSE_DEV_OTP=false` |
+| OTP de prueba en producción | `APP_ENVIRONMENT=production` fuerza `OTP_DELIVERY=resend` (o smtp) y `EXPOSE_DEV_OTP=false` |
 | Transmisión HTTP | `FORCE_HTTPS_REDIRECT=true` detrás de proxy; cabecera HSTS en producción |
 | Sesiones largas | JWT con expiración (`ACCESS_TOKEN_EXPIRE_MINUTES`, máx. 12 h en producción) |
 | Bots | reCAPTCHA v3 opcional si defines `RECAPTCHA_SECRET_KEY` |
@@ -22,21 +22,17 @@
 
 ```env
 APP_ENVIRONMENT=production
-OTP_DELIVERY=smtp
+OTP_DELIVERY=resend
 EXPOSE_DEV_OTP=false
-SMTP_HOST=smtp.tuproveedor.com
-SMTP_PORT=587
-SMTP_USER=...
-SMTP_PASSWORD=...
-SMTP_FROM=ESPOL Transporte <noreply@tudominio.com>
-SMTP_USE_TLS=true
+RESEND_API_KEY=re_...
+RESEND_FROM=ESPOL Transporte <noreply@espol.edu.ec>
 ```
 
 2. El estudiante usa correo `@espol.edu.ec` → `POST /auth/passenger/send-otp` → recibe **6 dígitos por correo** (válidos 15 min).
 
 3. Completa registro con `POST /auth/passenger/register` y el código.
 
-Para pruebas locales sin SMTP real puedes usar Mailpit (`docker compose` + `SMTP_HOST=localhost`, puerto 1025) o temporalmente `OTP_DELIVERY=log` solo con `APP_ENVIRONMENT=development`.
+En Render usa **Resend** (ver `OTP_RESEND.md`). En local: `OTP_DELIVERY=log` o Mailpit con `OTP_DELIVERY=smtp`.
 
 ## Android y tokens
 

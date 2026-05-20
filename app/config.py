@@ -20,10 +20,15 @@ class Settings(BaseSettings):
     def production_safety(self) -> "Settings":
         if self.app_environment.lower() != "production":
             return self
-        if self.otp_delivery.lower() != "smtp":
-            raise ValueError("En producción OTP_DELIVERY debe ser 'smtp' (correo real).")
-        if not self.smtp_host.strip():
-            raise ValueError("En producción configura SMTP_HOST y credenciales SMTP.")
+        delivery = self.otp_delivery.lower()
+        if delivery not in ("resend", "smtp"):
+            raise ValueError("En producción OTP_DELIVERY debe ser 'resend' o 'smtp'.")
+        if delivery == "resend" and not self.resend_api_key.strip():
+            raise ValueError("En producción con Resend define RESEND_API_KEY.")
+        if delivery == "resend" and not self.resend_from.strip():
+            raise ValueError("En producción con Resend define RESEND_FROM (dominio verificado).")
+        if delivery == "smtp" and not self.smtp_host.strip():
+            raise ValueError("En producción con SMTP configura SMTP_HOST.")
         if self.jwt_secret.startswith("change-me"):
             raise ValueError("En producción define JWT_SECRET largo y aleatorio.")
         if self.expose_dev_otp:
@@ -38,9 +43,13 @@ class Settings(BaseSettings):
     jwt_algorithm: str = "HS256"
     access_token_expire_minutes: int = 60 * 12
 
-    otp_delivery: str = "smtp"
+    # log = consola (solo desarrollo) | resend = API Resend (Render/producción) | smtp = Mailpit/local
+    otp_delivery: str = "resend"
     expose_dev_otp: bool = False
     expose_api_errors: bool = True
+
+    resend_api_key: str = ""
+    resend_from: str = "ESPOL Transporte <onboarding@resend.dev>"
 
     smtp_host: str = ""
     smtp_port: int = 587

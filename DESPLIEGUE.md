@@ -7,7 +7,7 @@ Objetivo: la app Android apunte a una URL pública `https://api.tudominio.com` q
 ```
 [App Android]  --HTTPS-->  [API FastAPI]  --->  [PostgreSQL gestionado]
                                 |
-                                +--> [SMTP]  (Gmail, SendGrid, SES…) → correo @espol.edu.ec
+                                +--> [Resend API]  → correo @espol.edu.ec
 ```
 
 ## Opción A — Railway o Render (rápido)
@@ -23,12 +23,9 @@ Objetivo: la app Android apunte a una URL pública `https://api.tudominio.com` q
 APP_ENVIRONMENT=production
 DATABASE_URL=postgresql://...
 JWT_SECRET=<genera 64 caracteres aleatorios>
-OTP_DELIVERY=smtp
-SMTP_HOST=...
-SMTP_PORT=587
-SMTP_USER=...
-SMTP_PASSWORD=...
-SMTP_FROM=ESPOL Transporte <noreply@tudominio.com>
+OTP_DELIVERY=resend
+RESEND_API_KEY=re_...
+RESEND_FROM=ESPOL Transporte <noreply@tudominio.com>
 EXPOSE_DEV_OTP=false
 EXPOSE_API_ERRORS=false
 FORCE_HTTPS_REDIRECT=true
@@ -70,18 +67,18 @@ api.base.url=https://api.tudominio.com/
 
 Recompila e instala el APK. **No uses** `http://192.168.x.x` en producción.
 
-## SMTP para correos institucionales
+## Correo OTP con Resend
 
-- Gmail/Google Workspace: contraseña de aplicación, puerto 587.
-- SendGrid / Mailgun / Amazon SES: mejor para volumen.
-- El remitente (`SMTP_FROM`) debe ser un dominio que permita envío (SPF/DKIM) para no caer en spam.
+Render bloquea SMTP en el plan gratuito. Usa la API de Resend (ver `OTP_RESEND.md`).
 
-Prueba con `POST /auth/passenger/send-otp` desde Swagger (`/docs`) y revisa la bandeja del correo `@espol.edu.ec`.
+1. Cuenta en [resend.com](https://resend.com) y API key.
+2. Verifica el dominio `espol.edu.ec` para enviar a correos institucionales.
+3. Prueba con `POST /auth/passenger/send-otp` en `/docs`.
 
 ## Checklist antes de “salir de pruebas”
 
 - [ ] `APP_ENVIRONMENT=production`
-- [ ] `OTP_DELIVERY=smtp` y correo de prueba recibido
+- [ ] `OTP_DELIVERY=resend`, `RESEND_API_KEY` y correo de prueba recibido
 - [ ] `EXPOSE_DEV_OTP=false`
 - [ ] `JWT_SECRET` único y largo
 - [ ] HTTPS activo
