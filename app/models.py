@@ -24,6 +24,7 @@ class TripDirection(str, enum.Enum):
 class BookingStatus(str, enum.Enum):
     active = "active"
     cancelled = "cancelled"
+    completed = "completed"
 
 
 class User(Base):
@@ -171,11 +172,24 @@ class TripBooking(Base):
         UUID(as_uuid=True), ForeignKey("users.id"), nullable=True
     )
     cancellation_reason: Mapped[Optional[str]] = mapped_column(String(500), nullable=True)
+    completed_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True), nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc))
 
     passenger: Mapped["User"] = relationship(foreign_keys=[passenger_id])
     driver: Mapped["User"] = relationship(foreign_keys=[driver_id])
     home_zone: Mapped["Zone"] = relationship()
+
+
+class DriverRating(Base):
+    __tablename__ = "driver_ratings"
+    __table_args__ = (UniqueConstraint("booking_id", name="uq_driver_rating_booking"),)
+
+    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    booking_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), ForeignKey("trip_bookings.id"), index=True)
+    passenger_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), ForeignKey("users.id"), index=True)
+    driver_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), ForeignKey("users.id"), index=True)
+    stars: Mapped[int] = mapped_column(Integer)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc))
 
 
 class InboxAlert(Base):

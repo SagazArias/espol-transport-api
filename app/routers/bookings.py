@@ -4,15 +4,29 @@ from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy import select
 from sqlalchemy.orm import Session, joinedload
 
+from app.booking_capacity import count_active_driver_bookings
 from app.database import get_db
 from app.deps import get_current_user, require_match_access
-from app.models import BookingStatus, DriverWeeklyProfile, InboxAlert, TripBooking, TripDirection, User, UserRole, Vehicle
+from app.models import (
+    BookingStatus,
+    DriverRating,
+    DriverWeeklyProfile,
+    InboxAlert,
+    TripBooking,
+    TripDirection,
+    User,
+    UserRole,
+    Vehicle,
+)
 from app.schemas import (
     InboxAlertOut,
     InboxOut,
     TripBookingCancelIn,
+    TripBookingCompleteOut,
     TripBookingCreate,
     TripBookingOut,
+    TripBookingRateIn,
+    TripBookingRateOut,
     TripInboxItemOut,
     utc_now,
 )
@@ -150,6 +164,13 @@ def create_booking(
     profile = db.execute(
         select(DriverWeeklyProfile).where(DriverWeeklyProfile.driver_id == driver.id)
     ).scalar_one_or_none()
+    seat_capacity = profile.seat_capacity if profile else 3
+    active_count = count_active_driver_bookings(db, driver.id)
+    if active_count >= seat_capacity:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="Este conductor ya no tiene cupos disponibles.",
+        )
     fare = profile.trip_fare_usd if profile else 1.50
 
     booking = TripBooking(
@@ -237,6 +258,100 @@ def cancel_booking(
     )
     db.commit()
     return get_inbox(db=db, user=user)
+
+
+@router.post("/{booking_id}/complete", response_model=TripBookingCompleteOut)
+def complete_booking(
+    booking_id: UUID,
+    db: Session = Depends(get_db),
+    user: User = Depends(get_current_user),
+) -> TripBookingCompleteOut:
+    booking = db.execute(
+        select(TripBooking)
+        .where(TripBooking.id == booking_id, TripBooking.status == BookingStatus.active)
+        .options(joinedload(TripBooking.passenger), joinedload(TripBooking.driver), joinedload(TripBooking.home_zone))
+    ).scalar_one_or_none()
+
+    if booking is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Viaje no encontrado o ya finalizado.")
+
+    if user.id not in (booking.passenger_id, booking.driver_id):
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="No puedes finalizar este viaje.")
+
+    now = utc_now()
+    booking.status = BookingStatus.completed
+    booking.completed_at = now
+
+    zone_name = booking.home_zone.name if booking.home_zone else ""
+    summary = _route_summary(booking.weekday, booking.direction, booking.trip_time, zone_name)
+    completer_name = user.full_name
+
+    if user.id == booking.passenger_id:
+        recipient_id = booking.driver_id
+        other_label = "El pasajero"
+    else:
+        recipient_id = booking.passenger_id
+        other_label = "El conductor"
+
+    db.add(
+        InboxAlert(
+            recipient_id=recipient_id,
+            booking_id=booking.id,
+            message=f"{other_label} {completer_name} marcó como concluido el viaje ({summary}).",
+            created_at=now,
+        )
+    )
+    db.commit()
+
+    prompt_rating = user.role == UserRole.student and user.id == booking.passenger_id
+    return TripBookingCompleteOut(
+        inbox=get_inbox(db=db, user=user),
+        prompt_passenger_rating=prompt_rating,
+        driver_id=booking.driver_id if prompt_rating else None,
+        booking_id=booking.id,
+    )
+
+
+@router.post("/{booking_id}/rate", response_model=TripBookingRateOut)
+def rate_driver_after_trip(
+    booking_id: UUID,
+    body: TripBookingRateIn,
+    db: Session = Depends(get_db),
+    passenger: User = Depends(get_current_user),
+) -> TripBookingRateOut:
+    if passenger.role != UserRole.student:
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Solo pasajeros pueden calificar.")
+
+    booking = db.execute(
+        select(TripBooking).where(
+            TripBooking.id == booking_id,
+            TripBooking.passenger_id == passenger.id,
+            TripBooking.status == BookingStatus.completed,
+        )
+    ).scalar_one_or_none()
+    if booking is None:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="No se puede calificar este viaje.",
+        )
+
+    existing = db.execute(
+        select(DriverRating.id).where(DriverRating.booking_id == booking_id)
+    ).scalar_one_or_none()
+    if existing is not None:
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="Ya calificaste este viaje.")
+
+    db.add(
+        DriverRating(
+            booking_id=booking.id,
+            passenger_id=passenger.id,
+            driver_id=booking.driver_id,
+            stars=body.stars,
+            created_at=utc_now(),
+        )
+    )
+    db.commit()
+    return TripBookingRateOut()
 
 
 @router.get("/driver/notifications", response_model=list[TripBookingOut])

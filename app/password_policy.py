@@ -7,6 +7,10 @@ _PASSWORD_RE = re.compile(
 
 
 def validate_password_strength(password: str) -> str:
+    if password != password.strip() or " " in password:
+        raise ValueError(
+            "La contraseña debe ser una sola cadena sin espacios al inicio, al final ni en el medio."
+        )
     if not _PASSWORD_RE.match(password):
         raise ValueError(
             "La contraseña debe tener al menos 8 caracteres, "

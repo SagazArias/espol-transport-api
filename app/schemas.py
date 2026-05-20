@@ -311,7 +311,11 @@ class PassengerMatchResult(BaseModel):
     direction: TripDirection
     trip_time: time
     time_delta_minutes: int
-    available_seats: int = 3
+    seat_capacity: int = 3
+    available_seats: int = 0
+    seats_full: bool = False
+    driver_rating_avg: Optional[float] = None
+    driver_rating_count: int = 0
     trip_fare_usd: float = 1.50
     ida_route_sectors: list[str] = Field(default_factory=list)
     regreso_route_sectors: list[str] = Field(default_factory=list)
@@ -376,6 +380,21 @@ class InboxOut(BaseModel):
 
 class TripBookingCancelIn(BaseModel):
     reason: str = Field(min_length=3, max_length=500)
+
+
+class TripBookingCompleteOut(BaseModel):
+    inbox: InboxOut
+    prompt_passenger_rating: bool = False
+    driver_id: Optional[UUID] = None
+    booking_id: UUID
+
+
+class TripBookingRateIn(BaseModel):
+    stars: int = Field(ge=1, le=5)
+
+
+class TripBookingRateOut(BaseModel):
+    message: str = "Calificación registrada."
 
 
 def utc_now() -> datetime:

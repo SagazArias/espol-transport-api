@@ -3,6 +3,8 @@ from datetime import time
 from sqlalchemy import select
 from sqlalchemy.orm import Session, joinedload
 
+from app.booking_capacity import active_booking_counts
+from app.driver_ratings import driver_rating_averages, driver_reputation_sort_key
 from app.models import DriverDayPlan, DriverDayZone, DriverWeeklyProfile, TripDirection, User
 from app.schemas import PassengerMatchResult, PassengerMatchSearch
 from app.time_utils import minutes_between
@@ -36,6 +38,10 @@ def search_passenger_matches(db: Session, q: PassengerMatchSearch) -> tuple[list
     )
     plans = db.execute(stmt).unique().scalars().all()
 
+    driver_ids = list({p.driver.id for p in plans})
+    booking_counts = active_booking_counts(db, driver_ids)
+    rating_stats = driver_rating_averages(db, driver_ids)
+
     results: list[PassengerMatchResult] = []
     for plan in plans:
         route_zone_ids = _zones_for_direction(plan, q.direction)
@@ -63,13 +69,18 @@ def search_passenger_matches(db: Session, q: PassengerMatchSearch) -> tuple[list
 
         vehicle = plan.driver.vehicles[0] if plan.driver.vehicles else None
         profile = plan.driver.weekly_profile
-        seats = profile.seat_capacity if profile else 3
+        seat_capacity = profile.seat_capacity if profile else 3
+        active_count = booking_counts.get(plan.driver.id, 0)
+        remaining = max(0, seat_capacity - active_count)
+        seats_full = remaining <= 0
         fare = float(profile.trip_fare_usd) if profile else 1.50
         dir_label = "Ida hacia ESPOL" if q.direction == TripDirection.ida else "Regreso a casa"
-        route_sectors = _zone_names_for_direction(plan, q.direction)
         matched_summary = (
             f"{dir_label} · {weekday_name(q.weekday)} {driver_time.strftime('%H:%M')} · {zone.name}"
         )
+
+        avg_stars, rating_count = rating_stats.get(plan.driver.id, (0.0, 0))
+        driver_rating_avg = round(avg_stars, 1) if rating_count > 0 else None
 
         results.append(
             PassengerMatchResult(
@@ -87,14 +98,24 @@ def search_passenger_matches(db: Session, q: PassengerMatchSearch) -> tuple[list
                 direction=q.direction,
                 trip_time=driver_time,
                 time_delta_minutes=delta,
-                available_seats=seats,
+                seat_capacity=seat_capacity,
+                available_seats=remaining,
+                seats_full=seats_full,
+                driver_rating_avg=driver_rating_avg,
+                driver_rating_count=rating_count,
                 trip_fare_usd=fare,
                 ida_route_sectors=_zone_names_for_direction(plan, TripDirection.ida),
                 regreso_route_sectors=_zone_names_for_direction(plan, TripDirection.regreso),
             )
         )
 
-    results.sort(key=lambda r: (abs(r.time_delta_minutes), r.driver_name))
+    results.sort(
+        key=lambda r: (
+            -driver_reputation_sort_key(r.driver_rating_avg, r.driver_rating_count),
+            abs(r.time_delta_minutes),
+            r.driver_name.lower(),
+        )
+    )
     if not results:
         dir_label = "ida hacia ESPOL" if q.direction == TripDirection.ida else "regreso a casa"
         return [], (
