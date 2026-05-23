@@ -16,9 +16,11 @@ from app.security import hash_password, verify_password  # noqa: E402
 
 
 def main() -> None:
+    pwd = "Smoke#1234"
+    phrase = "mi-clave-recuperacion"
     print("1) Hash bcrypt...")
-    h = hash_password("password123")
-    assert verify_password("password123", h)
+    h = hash_password(pwd)
+    assert verify_password(pwd, h)
     print("   OK")
 
     print("2) Conexión DB + registro conductor de prueba...")
@@ -32,7 +34,8 @@ def main() -> None:
             "last_name": "Test",
             "phone": "0999999999",
             "email": email,
-            "password": "password123",
+            "password": pwd,
+            "recovery_phrase": phrase,
             "plate": "TST001",
             "brand": "Test",
             "model": "Car",

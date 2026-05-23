@@ -52,26 +52,6 @@ class UserPublic(BaseModel):
         return self.espol_verified_at is not None
 
 
-class PassengerSendOtp(BaseModel):
-    email: EmailStr
-    captcha_token: str | None = None
-
-    @field_validator("email", mode="before")
-    @classmethod
-    def normalize_email(cls, v: object) -> object:
-        if isinstance(v, str):
-            return v.strip().lower()
-        return v
-
-    @field_validator("email")
-    @classmethod
-    def must_be_espol_domain(cls, v: EmailStr) -> EmailStr:
-        s = str(v).lower()
-        if not s.endswith("@espol.edu.ec"):
-            raise ValueError("El correo debe ser institucional (@espol.edu.ec)")
-        return v
-
-
 class PassengerRegister(BaseModel):
     first_name: str = Field(min_length=1, max_length=120)
     last_name: str = Field(min_length=1, max_length=120)
@@ -79,7 +59,6 @@ class PassengerRegister(BaseModel):
     email: EmailStr
     password: str = Field(min_length=8, max_length=128)
     recovery_phrase: str = Field(min_length=4, max_length=64)
-    otp_code: str = Field(min_length=6, max_length=6, pattern=r"^\d{6}$")
     captcha_token: str | None = None
 
     @field_validator("password")
@@ -175,13 +154,8 @@ class PasswordRecoveryResetOut(BaseModel):
     message: str = "Contraseña actualizada. Ya puedes iniciar sesión."
 
 
-class OtpSentResponse(BaseModel):
-    message: str = "Si el correo es válido, se envió un código de verificación."
-    expires_in_minutes: int
-    dev_code: Optional[str] = Field(
-        default=None,
-        description="Solo en desarrollo: código OTP para pruebas sin leer el correo.",
-    )
+class AccountDeleteIn(BaseModel):
+    password: str = Field(min_length=1, max_length=128)
 
 
 class ZoneOut(BaseModel):

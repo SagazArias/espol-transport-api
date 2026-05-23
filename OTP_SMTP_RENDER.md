@@ -1,7 +1,7 @@
-# ⚠️ SMTP en Render
+# Verificación por correo (histórico)
 
-Render **bloquea conexiones SMTP** en el plan gratuito. No uses `OTP_DELIVERY=smtp` en Render.
+La verificación OTP por código de 6 dígitos **fue eliminada**.
 
-**Usa Resend:** consulta [OTP_RESEND.md](./OTP_RESEND.md).
+Los pasajeros se registran solo con correo `@espol.edu.ec` (validado en servidor y en la app).
 
-`OTP_DELIVERY=smtp` queda solo para desarrollo local con **Mailpit** (`docker compose`, puerto 1025).
+No se requiere Resend ni SMTP para el registro actual.

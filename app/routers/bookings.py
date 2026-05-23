@@ -36,6 +36,18 @@ from app.zone_matching import resolve_zone_id
 router = APIRouter(prefix="/bookings", tags=["bookings"])
 
 
+def _passenger_name_parts(passenger: User | None) -> tuple[str, str]:
+    if passenger is None:
+        return "", ""
+    first = (passenger.first_name or "").strip()
+    last = (passenger.last_name or "").strip()
+    if not first and not last and passenger.full_name:
+        parts = passenger.full_name.strip().split(None, 1)
+        first = parts[0]
+        last = parts[1] if len(parts) > 1 else ""
+    return first, last
+
+
 def _route_summary(weekday: int, direction: TripDirection, trip_time, zone_name: str) -> str:
     dir_label = "Ida hacia ESPOL" if direction == TripDirection.ida else "Regreso a casa"
     return f"{dir_label} · {weekday_name(weekday)} {trip_time.strftime('%H:%M')} · {zone_name}"
@@ -49,10 +61,11 @@ def _booking_to_out(db: Session, booking: TripBooking) -> TripBookingOut:
 
         zone = db.get(Zone, booking.home_zone_id)
     summary = _route_summary(booking.weekday, booking.direction, booking.trip_time, zone.name if zone else "")
+    p_first, p_last = _passenger_name_parts(passenger)
     return TripBookingOut(
         id=booking.id,
-        passenger_first_name=passenger.first_name if passenger else "",
-        passenger_last_name=passenger.last_name if passenger else "",
+        passenger_first_name=p_first,
+        passenger_last_name=p_last,
         passenger_phone=passenger.phone if passenger else None,
         weekday=booking.weekday,
         direction=booking.direction,
@@ -63,7 +76,7 @@ def _booking_to_out(db: Session, booking: TripBooking) -> TripBookingOut:
         created_at=booking.created_at,
         read_by_driver=booking.driver_read_at is not None,
         notification_message=(
-            f"{passenger.first_name} {passenger.last_name} agendó un viaje de {summary} "
+            f"Pasajero {p_first} {p_last} agendó un viaje: {summary} "
             f"({'tel. ' + passenger.phone if passenger and passenger.phone else 'sin teléfono'})"
         ),
     )
@@ -193,13 +206,14 @@ def create_booking(
     z = db.get(ZoneModel, zone_id)
     summary = _route_summary(body.weekday, body.direction, body.trip_time, z.name if z else "")
 
+    p_first, p_last = _passenger_name_parts(passenger)
     db.add(
         InboxAlert(
             recipient_id=driver.id,
             booking_id=booking.id,
             message=(
-                f"{passenger.first_name} {passenger.last_name} agendó un viaje: {summary}. "
-                f"Tel: {passenger.phone or 'no indicado'}."
+                f"Nuevo viaje agendado — Pasajero: {p_first} {p_last}. "
+                f"Ruta: {summary}. Tel: {passenger.phone or 'no indicado'}."
             ),
             created_at=utc_now(),
         )

@@ -38,9 +38,9 @@ def require_driver(user: Annotated[User, Depends(get_current_user)]) -> User:
 
 
 def require_match_access(user: Annotated[User, Depends(get_current_user)]) -> User:
-    if user.role == UserRole.student and user.espol_verified_at is None:
+    if user.role == UserRole.student and not str(user.email).lower().endswith("@espol.edu.ec"):
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
-            detail="Los pasajeros deben verificar su correo @espol.edu.ec antes de buscar coincidencias.",
+            detail="Los pasajeros deben usar un correo institucional @espol.edu.ec.",
         )
     return user

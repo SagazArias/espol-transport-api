@@ -1,17 +1,15 @@
 import logging
-from datetime import timedelta
 
-from fastapi import APIRouter, Depends, HTTPException, Request, status
+from fastapi import APIRouter, Depends, HTTPException, Request, Response, status
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
+from app.account_deletion import delete_user_account
 from app.auth_security import check_login_allowed, clear_login_lockout, record_failed_login
 from app.config import settings
 from app.database import get_db
 from app.deps import get_current_user
-from app.email_service import EmailDeliveryError, send_student_verification_email
-from app.models import StudentEmailOtp, User, UserRole, Vehicle
-from app.otp_utils import generate_six_digit_code, hash_otp, verify_otp
+from app.models import User, UserRole, Vehicle
 from app.recaptcha import verify_recaptcha
 from app.recovery_security import (
     GENERIC_RECOVERY_ERROR,
@@ -21,10 +19,9 @@ from app.recovery_security import (
     record_failed_recovery,
 )
 from app.schemas import (
+    AccountDeleteIn,
     DriverRegister,
-    OtpSentResponse,
     PassengerRegister,
-    PassengerSendOtp,
     PasswordRecoveryResetIn,
     PasswordRecoveryResetOut,
     PasswordRecoveryVerifyIn,
@@ -49,10 +46,8 @@ logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/auth", tags=["auth"])
 
 GENERIC_LOGIN_ERROR = "Correo o contraseña incorrectos."
-GENERIC_REGISTER_ERROR = "No se pudo completar el registro. Verifica los datos e inténtalo de nuevo."
-GENERIC_OTP_SENT = (
-    "Si el correo es institucional (@espol.edu.ec) y no está registrado, "
-    "recibirás un código de 6 dígitos en los próximos minutos."
+EMAIL_ALREADY_REGISTERED = (
+    "Este correo ya tiene una cuenta. Inicia sesión o elimínala para volver a registrarla."
 )
 
 
@@ -70,17 +65,22 @@ def _check_captcha(token: str | None, action: str) -> None:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)) from exc
 
 
+def _ensure_email_available(db: Session, email: str) -> None:
+    exists = db.execute(select(User.id).where(User.email == email)).scalar_one_or_none()
+    if exists is not None:
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=EMAIL_ALREADY_REGISTERED)
+
+
 @router.post("/register", response_model=UserPublic)
 @limiter.limit("8/minute")
 def register(request: Request, body: UserRegister, db: Session = Depends(get_db)) -> User:
     _check_captcha(body.captcha_token, "register")
-    exists = db.execute(select(User.id).where(User.email == str(body.email).lower())).scalar_one_or_none()
-    if exists is not None:
-        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=GENERIC_REGISTER_ERROR)
+    email = str(body.email).lower().strip()
+    _ensure_email_available(db, email)
 
     fn, ln = _split_full_name(body.full_name)
     user = User(
-        email=str(body.email).lower(),
+        email=email,
         password_hash=hash_password(body.password),
         full_name=body.full_name.strip(),
         first_name=fn,
@@ -96,70 +96,6 @@ def register(request: Request, body: UserRegister, db: Session = Depends(get_db)
     return user
 
 
-@router.post("/passenger/send-otp", response_model=OtpSentResponse)
-@limiter.limit("5/minute")
-def passenger_send_otp(
-    request: Request, body: PassengerSendOtp, db: Session = Depends(get_db)
-) -> OtpSentResponse:
-    _check_captcha(body.captcha_token, "passenger_send_otp")
-    email = str(body.email).lower().strip()
-
-    exists = db.execute(select(User.id).where(User.email == email)).scalar_one_or_none()
-    if exists is not None:
-        return OtpSentResponse(
-            message=GENERIC_OTP_SENT,
-            expires_in_minutes=settings.student_otp_ttl_minutes,
-            dev_code=None,
-        )
-
-    now = utc_now()
-    latest = db.execute(
-        select(StudentEmailOtp)
-        .where(StudentEmailOtp.email == email)
-        .order_by(StudentEmailOtp.created_at.desc())
-        .limit(1)
-    ).scalar_one_or_none()
-    if latest is not None and (now - latest.created_at).total_seconds() < settings.student_otp_resend_seconds:
-        raise HTTPException(
-            status_code=status.HTTP_429_TOO_MANY_REQUESTS,
-            detail=f"Espera {settings.student_otp_resend_seconds} segundos antes de pedir otro código.",
-        )
-
-    code = generate_six_digit_code()
-    expires = now + timedelta(minutes=settings.student_otp_ttl_minutes)
-    row = StudentEmailOtp(
-        email=email,
-        code_hash=hash_otp(email, code),
-        expires_at=expires,
-        consumed_at=None,
-        created_at=now,
-    )
-    db.add(row)
-    db.flush()
-    try:
-        send_student_verification_email(email, code)
-    except EmailDeliveryError as exc:
-        db.rollback()
-        logger.error(
-            "OTP email failed for %s: %s",
-            email,
-            exc,
-            exc_info=exc.cause or exc,
-        )
-        detail = "No se pudo enviar el correo de verificación. Contacta al administrador."
-        if settings.expose_api_errors:
-            detail = f"{detail} ({exc})"
-        raise HTTPException(status_code=status.HTTP_502_BAD_GATEWAY, detail=detail) from exc
-    db.commit()
-
-    dev_code = code if settings.expose_dev_otp else None
-    return OtpSentResponse(
-        message=GENERIC_OTP_SENT,
-        expires_in_minutes=settings.student_otp_ttl_minutes,
-        dev_code=dev_code,
-    )
-
-
 @router.post("/passenger/register", response_model=UserPublic)
 @limiter.limit("8/minute")
 def passenger_register(
@@ -167,39 +103,20 @@ def passenger_register(
 ) -> User:
     _check_captcha(body.captcha_token, "passenger_register")
     email = str(body.email).lower().strip()
-
-    exists = db.execute(select(User.id).where(User.email == email)).scalar_one_or_none()
-    if exists is not None:
-        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=GENERIC_REGISTER_ERROR)
+    _ensure_email_available(db, email)
 
     now = utc_now()
-    challenge = db.execute(
-        select(StudentEmailOtp)
-        .where(
-            StudentEmailOtp.email == email,
-            StudentEmailOtp.consumed_at.is_(None),
-            StudentEmailOtp.expires_at > now,
-        )
-        .order_by(StudentEmailOtp.created_at.desc())
-        .limit(1)
-    ).scalar_one_or_none()
+    first = body.first_name.strip()
+    last = body.last_name.strip()
+    full_name = f"{first} {last}".strip()
 
-    if challenge is None or not verify_otp(email, body.otp_code, challenge.code_hash):
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail="Código inválido o expirado. Solicita un nuevo código.",
-        )
-
-    challenge.consumed_at = now
-
-    full_name = f"{body.first_name.strip()} {body.last_name.strip()}".strip()
     user = User(
         email=email,
         password_hash=hash_password(body.password),
         recovery_phrase_hash=hash_password(body.recovery_phrase),
         full_name=full_name,
-        first_name=body.first_name.strip(),
-        last_name=body.last_name.strip(),
+        first_name=first,
+        last_name=last,
         phone=body.phone.strip(),
         espol_verified_at=now,
         role=UserRole.student,
@@ -216,20 +133,20 @@ def passenger_register(
 def driver_register(request: Request, body: DriverRegister, db: Session = Depends(get_db)) -> User:
     _check_captcha(body.captcha_token, "driver_register")
     email = str(body.email).lower().strip()
-
-    exists = db.execute(select(User.id).where(User.email == email)).scalar_one_or_none()
-    if exists is not None:
-        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=GENERIC_REGISTER_ERROR)
+    _ensure_email_available(db, email)
 
     now = utc_now()
-    full_name = f"{body.first_name.strip()} {body.last_name.strip()}".strip()
+    first = body.first_name.strip()
+    last = body.last_name.strip()
+    full_name = f"{first} {last}".strip()
+
     user = User(
         email=email,
         password_hash=hash_password(body.password),
         recovery_phrase_hash=hash_password(body.recovery_phrase),
         full_name=full_name,
-        first_name=body.first_name.strip(),
-        last_name=body.last_name.strip(),
+        first_name=first,
+        last_name=last,
         phone=body.phone.strip(),
         espol_verified_at=None,
         role=UserRole.driver,
@@ -271,6 +188,23 @@ def login(request: Request, body: UserLogin, db: Session = Depends(get_db)) -> T
 @router.get("/me", response_model=UserPublic)
 def me(user: User = Depends(get_current_user)) -> User:
     return user
+
+
+@router.delete("/me", status_code=status.HTTP_204_NO_CONTENT)
+@limiter.limit("5/minute")
+def delete_my_account(
+    request: Request,
+    body: AccountDeleteIn,
+    db: Session = Depends(get_db),
+    user: User = Depends(get_current_user),
+) -> Response:
+    if not verify_password(body.password, user.password_hash):
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Contraseña incorrecta. No se eliminó la cuenta.",
+        )
+    delete_user_account(db, user)
+    return Response(status_code=status.HTTP_204_NO_CONTENT)
 
 
 @router.post("/password-recovery/verify", response_model=PasswordRecoveryVerifyOut)

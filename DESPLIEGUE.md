@@ -7,7 +7,6 @@ Objetivo: la app Android apunte a una URL pública `https://api.tudominio.com` q
 ```
 [App Android]  --HTTPS-->  [API FastAPI]  --->  [PostgreSQL gestionado]
                                 |
-                                +--> [Resend API]  → correo @espol.edu.ec
 ```
 
 ## Opción A — Railway o Render (rápido)
@@ -23,10 +22,6 @@ Objetivo: la app Android apunte a una URL pública `https://api.tudominio.com` q
 APP_ENVIRONMENT=production
 DATABASE_URL=postgresql://...
 JWT_SECRET=<genera 64 caracteres aleatorios>
-OTP_DELIVERY=resend
-RESEND_API_KEY=re_...
-RESEND_FROM=ESPOL Transporte <noreply@tudominio.com>
-EXPOSE_DEV_OTP=false
 EXPOSE_API_ERRORS=false
 FORCE_HTTPS_REDIRECT=true
 ```
@@ -67,18 +62,11 @@ api.base.url=https://api.tudominio.com/
 
 Recompila e instala el APK. **No uses** `http://192.168.x.x` en producción.
 
-## Correo OTP con Resend
-
-Render bloquea SMTP en el plan gratuito. Usa la API de Resend (ver `OTP_RESEND.md`).
-
-1. Cuenta en [resend.com](https://resend.com) y API key.
-2. Verifica el dominio `espol.edu.ec` para enviar a correos institucionales.
-3. Prueba con `POST /auth/passenger/send-otp` en `/docs`.
-
-## Checklist antes de “salir de pruebas”
+## Checklist antes de producción
 
 - [ ] `APP_ENVIRONMENT=production`
-- [ ] `OTP_DELIVERY=resend`, `RESEND_API_KEY` y correo de prueba recibido
+- [ ] `alembic upgrade head` (incluye migración `0010` si venías de OTP)
+- [ ] Registro pasajero con `@espol.edu.ec` probado desde la app
 - [ ] `EXPOSE_DEV_OTP=false`
 - [ ] `JWT_SECRET` único y largo
 - [ ] HTTPS activo
