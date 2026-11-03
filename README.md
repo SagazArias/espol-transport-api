@@ -229,3 +229,7 @@ Más documentación:
 - Rate limit con almacenamiento compartido (Redis). Hoy se guarda en memoria y es por proceso.
 - Retirar `GET /matches/legacy` y el servicio `mailpit` si ya no se usan.
 - Limpiar en DESPLIEGUE.md la referencia a `EXPOSE_DEV_OTP`, que viene de la etapa OTP.
+
+## Licencia
+
+Distribuido bajo la licencia MIT. Copyright (c) 2026 Samuel Arias. Ver [LICENSE](LICENSE).
