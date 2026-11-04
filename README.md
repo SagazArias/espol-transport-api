@@ -2,6 +2,10 @@
 
 API REST del sistema de **carpooling para estudiantes de la ESPOL** (Guayaquil, Ecuador). Conecta a conductores que viajan hacia o desde el campus con pasajeros de su misma zona. La consume la app Android [`espol-transport-android`](https://github.com/SagazArias/espol-transport-android).
 
+[![CI](https://github.com/SagazArias/espol-transport-api/actions/workflows/ci.yml/badge.svg)](https://github.com/SagazArias/espol-transport-api/actions/workflows/ci.yml)
+
+**API en vivo:** [documentación interactiva (Swagger)](https://espol-transport.onrender.com/docs) · [ReDoc](https://espol-transport.onrender.com/redoc). Está en el plan gratuito de Render, así que la primera petición puede tardar 30–60 s mientras el servidor despierta.
+
 ## Problema
 
 Muchos estudiantes hacen a diario el mismo trayecto hacia la ESPOL, y muchos van en carro con asientos vacíos. Esta API organiza ese transporte: el conductor publica su horario semanal y las zonas por las que pasa, el pasajero busca por sector y hora, reserva un asiento con una tarifa fija y, al terminar el viaje, califica al conductor.
@@ -66,7 +70,7 @@ Muchos estudiantes hacen a diario el mismo trayecto hacia la ESPOL, y muchos van
 
 ## Endpoints principales
 
-Documentación interactiva en `/docs` (Swagger) y `/redoc`.
+Documentación interactiva en `/docs` (Swagger) y `/redoc`; en producción: [espol-transport.onrender.com/docs](https://espol-transport.onrender.com/docs).
 
 | Router | Método y ruta | Descripción |
 |---|---|---|
@@ -175,6 +179,18 @@ RECAPTCHA_MIN_SCORE=0.5
 FORCE_HTTPS_REDIRECT=false
 ```
 
+### Pruebas
+
+La suite de `tests/` corre de punta a punta contra **PostgreSQL real**: recrea la base, aplica las migraciones de Alembic y prueba auth, roles, el horario del conductor, la búsqueda, la reserva, concluir, calificar y cancelar. Usa una base aparte, así que no toca tus datos de desarrollo.
+
+```bash
+docker run -d --rm --name espol-test-pg -e POSTGRES_USER=espol -e POSTGRES_PASSWORD=espol_dev   -e POSTGRES_DB=espol_test -p 55432:5432 postgres:16-alpine
+pip install -r requirements-dev.txt
+pytest -q
+```
+
+Para usar otra base, define `TEST_DATABASE_URL`, que **se vacía en cada corrida**. El CI de GitHub Actions corre la misma suite con un Postgres de servicio en cada push y en cada PR.
+
 > `docker-compose.yml` también define un servicio `mailpit`, que quedó de la etapa OTP. Ya no es necesario.
 
 Para probar con la app Android, apunta `api.base.url=http://<IP_DE_TU_PC>:8000/` en su `local.properties`. Ver [SETUP_PRUEBAS.md](SETUP_PRUEBAS.md).
@@ -216,14 +232,16 @@ Más documentación:
 │   └── account_deletion.py, trip_times.py, time_utils.py, weekday_labels.py
 ├── alembic/versions/         # Migraciones 0001–0010
 ├── scripts/smoke_test.py
+├── tests/                    # pytest de punta a punta contra PostgreSQL
+├── .github/workflows/ci.yml  # CI: pytest con Postgres de servicio
 ├── docker-compose.yml
-├── requirements.txt
+├── requirements.txt, requirements-dev.txt
 └── .env.example
 ```
 
 ## Mejoras futuras
 
-- Suite de tests automatizados (pytest) y CI en GitHub Actions. Hoy solo existe el smoke test.
+- Ampliar las pruebas: recuperación de contraseña, eliminación de cuenta, cupos llenos y bloqueo por intentos fallidos.
 - Dockerfile para la API, para desplegar con una sola imagen.
 - Notificaciones push (FCM) en lugar de consultar la bandeja de avisos.
 - Rate limit con almacenamiento compartido (Redis). Hoy se guarda en memoria y es por proceso.
