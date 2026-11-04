@@ -145,6 +145,9 @@ def put_weekly_schedule(
         else:
             for sector in list(plan.sectors):
                 db.delete(sector)
+            # SQLAlchemy ejecuta INSERT antes que DELETE en un mismo flush: sin esto, volver a guardar
+            # un sector que ya existía viola uq_driver_day_zone_dir y la API responde 500.
+            db.flush()
 
         plan.ida_time = day_in.ida_time
         plan.regreso_time = day_in.regreso_time
