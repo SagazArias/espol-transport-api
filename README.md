@@ -6,6 +6,10 @@ API REST del sistema de **carpooling para estudiantes de la ESPOL** (Guayaquil, 
 
 **API en vivo:** [documentación interactiva (Swagger)](https://espol-transport.onrender.com/docs) · [ReDoc](https://espol-transport.onrender.com/redoc). Está en el plan gratuito de Render, así que la primera petición puede tardar 30–60 s mientras el servidor despierta.
 
+| Documentación en vivo (Swagger) | La app que la consume |
+|---|---|
+| <a href="https://espol-transport.onrender.com/docs"><img src="docs/capturas/swagger.webp" alt="Swagger de la API con los endpoints de auth y zonas" width="480"></a> | <img src="https://raw.githubusercontent.com/SagazArias/espol-transport-android/main/docs/capturas/resultados.webp" alt="Resultado de búsqueda en la app Android" width="150"> <img src="https://raw.githubusercontent.com/SagazArias/espol-transport-android/main/docs/capturas/horario.webp" alt="Horario del conductor en la app Android" width="150"> |
+
 ## Problema
 
 Muchos estudiantes hacen a diario el mismo trayecto hacia la ESPOL, y muchos van en carro con asientos vacíos. Esta API organiza ese transporte: el conductor publica su horario semanal y las zonas por las que pasa, el pasajero busca por sector y hora, reserva un asiento con una tarifa fija y, al terminar el viaje, califica al conductor.
