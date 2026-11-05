@@ -1,0 +1,19 @@
+name: keepalive
+
+# Render (plan gratuito) apaga el servicio tras 15 min sin tráfico; un ping cada 10 min lo mantiene despierto.
+# shortcut: el cron de GitHub puede atrasarse varios minutos en horas pico, así que a veces el servidor se dormirá igual;
+# si hace falta garantía, usar un plan pago de Render o un monitor externo con intervalo fijo.
+on:
+  schedule:
+    - cron: "*/10 * * * *"
+  workflow_dispatch:
+
+permissions: {}
+
+jobs:
+  ping:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: GET /health
+        run: curl --fail --silent --show-error --max-time 90 --retry 3 --retry-delay 10 https://espol-transport.onrender.com/health
